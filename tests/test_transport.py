@@ -3,6 +3,7 @@
 import struct
 import unittest
 from typing import cast
+from unittest.mock import patch
 
 from fido2.hid import CTAPHID
 
@@ -63,6 +64,26 @@ class FramingTest(unittest.TestCase):
         response = self.device.reports.pop()
         self.assertEqual(response[4], CTAPHID.ERROR | 0x80)
         self.assertEqual(response[7], 0x04)
+
+    def test_cbor_command_reaches_authenticator(self):
+        channel = 17
+        self.transport.channels.add(channel)
+        self.transport._receive(packet(channel, CTAPHID.CBOR, b"\x04"))
+        assert self.transport.active is not None
+        self.transport.active[1].result(timeout=1)
+        self.transport._poll_active()
+        response = self.device.reports.pop()
+        self.assertEqual(response[4], CTAPHID.CBOR | 0x80)
+        self.assertEqual(response[7], 0)
+
+    def test_executor_shutdown_when_device_creation_fails(self):
+        with (
+            patch("src.transport.FidoDevice", side_effect=RuntimeError("failed")),
+            patch.object(self.transport.executor, "shutdown") as shutdown,
+            self.assertRaisesRegex(RuntimeError, "failed"),
+        ):
+            self.transport.run()
+        shutdown.assert_called_once_with(wait=False, cancel_futures=True)
 
 
 if __name__ == "__main__":
