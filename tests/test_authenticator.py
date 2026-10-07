@@ -240,6 +240,57 @@ class AuthenticatorTest(unittest.TestCase):
         )
         self.assertIsNone(assertion.user)
 
+    def test_revocation_rejects_site_supplied_non_discoverable_id(self):
+        registration = self.ctap.make_credential(
+            bytes(32),
+            {"id": "example.com"},
+            {"id": b"alice"},
+            [{"type": "public-key", "alg": -7}],
+            options={"rk": False},
+        )
+        assert registration.auth_data.credential_data is not None
+        credential_id = registration.auth_data.credential_data.credential_id
+        self.assertEqual(self.auth.store.all(), [])
+        self.assertTrue(self.auth.store.revoke(credential_id))
+        self.assertFalse(self.auth.store.revoke(credential_id))
+        self.keys.uses = 0
+        with self.assertRaises(CtapError) as error:
+            self.ctap.get_assertion(
+                "example.com",
+                bytes(32),
+                [{"type": "public-key", "id": credential_id}],
+            )
+        self.assertEqual(error.exception.code, CtapError.ERR.NO_CREDENTIALS)
+        self.assertEqual(self.keys.uses, 0)
+        fresh_store = CredentialStore(Path(self.temp.name))
+        self.assertTrue(fresh_store.is_revoked(credential_id))
+
+    def test_revocation_removes_discoverable_credential(self):
+        registration = self.ctap.make_credential(
+            bytes(32),
+            {"id": "example.com"},
+            {"id": b"alice"},
+            [{"type": "public-key", "alg": -7}],
+            options={"rk": True},
+        )
+        assert registration.auth_data.credential_data is not None
+        credential_id = registration.auth_data.credential_data.credential_id
+        self.assertEqual(len(self.auth.store.all()), 1)
+        self.auth.store.revoke(credential_id)
+        self.assertEqual(self.auth.store.all(), [])
+        with self.assertRaises(CtapError) as error:
+            self.ctap.get_assertion("example.com", bytes(32))
+        self.assertEqual(error.exception.code, CtapError.ERR.NO_CREDENTIALS)
+        replacement = self.ctap.make_credential(
+            bytes(32),
+            {"id": "example.com"},
+            {"id": b"alice"},
+            [{"type": "public-key", "alg": -7}],
+            exclude_list=[{"type": "public-key", "id": credential_id}],
+            options={"rk": True},
+        )
+        self.assertIsNotNone(replacement.auth_data.credential_data)
+
     def test_next_assertion_stays_on_original_channel(self):
         for name in ("alice", "bob"):
             self.ctap.make_credential(

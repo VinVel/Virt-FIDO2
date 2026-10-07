@@ -12,6 +12,7 @@ from unittest.mock import patch
 from typer.testing import CliRunner
 
 import main
+from src.storage import Credential, CredentialStore
 
 
 class MainTest(unittest.TestCase):
@@ -30,6 +31,8 @@ class MainTest(unittest.TestCase):
             "stop",
             "restart",
             "run",
+            "list",
+            "delete",
         ):
             self.assertIn(command, result.output)
         self.assertNotIn("install-user", result.output)
@@ -106,6 +109,60 @@ class MainTest(unittest.TestCase):
         self.assertEqual(result.exit_code, 2)
         self.assertIn("/dev/tpmrm0 is unavailable", result.output)
         transport.assert_not_called()
+
+    def test_list_and_revoke_by_displayed_prefix(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = CredentialStore(Path(directory))
+            credential_id = b"VFD1" + bytes(range(64))
+            store.save(
+                Credential(credential_id, "example.com", b"alice", "alice", "Alice")
+            )
+            with patch("main.CredentialStore", return_value=store):
+                listing = self.runner.invoke(main.app, ["list"])
+                self.assertEqual(listing.exit_code, 0)
+                self.assertIn("example.com", listing.output)
+                self.assertIn("Alice", listing.output)
+                prefix = main._credential_text(credential_id)[:16]
+                self.assertIn(prefix, listing.output)
+                revoked = self.runner.invoke(main.app, ["delete", prefix])
+                self.assertEqual(revoked.exit_code, 0)
+                self.assertIn("revoked locally", revoked.output)
+                self.assertEqual(store.all(), [])
+                self.assertTrue(store.is_revoked(credential_id))
+                self.assertTrue(store.revocations_path.exists())
+
+    def test_revoke_requires_unambiguous_id(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = CredentialStore(Path(directory))
+            first = b"VFD1" + bytes(40)
+            second = first + b"different"
+            store.save(Credential(first, "example.com", b"a", "a", "A"))
+            store.save(Credential(second, "example.com", b"b", "b", "B"))
+            with patch("main.CredentialStore", return_value=store):
+                result = self.runner.invoke(
+                    main.app, ["delete", main._credential_text(first)[:16]]
+                )
+            self.assertEqual(result.exit_code, 2)
+            self.assertIn("ambiguous", result.output)
+            self.assertFalse(store.revocations_path.exists())
+
+    def test_revoke_unlisted_full_id(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = CredentialStore(Path(directory))
+            credential_id = b"VFD1" + bytes(range(64))
+            with patch("main.CredentialStore", return_value=store):
+                result = self.runner.invoke(
+                    main.app, ["delete", main._credential_text(credential_id)]
+                )
+            self.assertEqual(result.exit_code, 0)
+            self.assertTrue(store.is_revoked(credential_id))
+            self.assertEqual(store.all(), [])
+
+    def test_delete_requires_credential_id(self):
+        result = self.runner.invoke(main.app, ["delete"])
+        self.assertEqual(result.exit_code, 2)
+        self.assertIn("Missing argument", result.output)
+        self.assertEqual(self.runner.invoke(main.app, ["-d", "some-id"]).exit_code, 2)
 
 
 if __name__ == "__main__":

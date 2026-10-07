@@ -171,6 +171,7 @@ class Authenticator:
             if (
                 isinstance(descriptor, dict)
                 and isinstance(descriptor.get("id"), bytes)
+                and not self.store.is_revoked(descriptor["id"])
                 and self.keys.matches(descriptor["id"], rp_hash)
             ):
                 raise ProtocolError(ERR.CREDENTIAL_EXCLUDED)
@@ -213,7 +214,8 @@ class Authenticator:
                     descriptor.get("id"), bytes
                 ):
                     cid = descriptor["id"]
-                    candidates.append(Credential(cid, rp_id, b"", "", ""))
+                    if not self.store.is_revoked(cid):
+                        candidates.append(Credential(cid, rp_id, b"", "", ""))
         else:
             candidates = self.store.for_rp(rp_id)
         if not candidates:
@@ -261,6 +263,8 @@ class Authenticator:
         verified: bool,
         want_up: bool,
     ) -> dict:
+        if self.store.is_revoked(credential.credential_id):
+            raise ProtocolError(ERR.NO_CREDENTIALS)
         flags = FLAG(0)
         if want_up and verified:
             flags |= FLAG.UP

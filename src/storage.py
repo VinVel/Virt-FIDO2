@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import tempfile
@@ -52,6 +53,7 @@ class CredentialStore:
     def __init__(self, directory: Path | None = None):
         self.directory = directory or data_dir()
         self.path = self.directory / "credentials.json"
+        self.revocations_path = self.directory / "revocations.json"
 
     def all(self) -> list[Credential]:
         try:
@@ -64,9 +66,61 @@ class CredentialStore:
         return [Credential.from_json(item) for item in value["credentials"]]
 
     def for_rp(self, rp_id: str) -> list[Credential]:
-        return [item for item in self.all() if item.rp_id == rp_id]
+        revocations = self.__revocations()
+        return [
+            item
+            for item in self.all()
+            if item.rp_id == rp_id
+            and hashlib.sha256(item.credential_id).hexdigest() not in revocations
+        ]
+
+    def is_revoked(self, credential_id: bytes) -> bool:
+        return hashlib.sha256(credential_id).hexdigest() in self.__revocations()
+
+    def revoke(self, credential_id: bytes) -> bool:
+        """Reject an ID from now on, then remove it from the local index."""
+        fingerprint = hashlib.sha256(credential_id).hexdigest()
+        revocations = self.__revocations()
+        was_new = fingerprint not in revocations
+        if was_new:
+            revocations.add(fingerprint)
+            self.__write(
+                self.revocations_path,
+                {"version": 1, "revocations": sorted(revocations)},
+            )
+        indexed = self.all()
+        entries = [item for item in indexed if item.credential_id != credential_id]
+        if len(entries) != len(indexed):
+            self.__write(
+                self.path,
+                {"version": 1, "credentials": [e.to_json() for e in entries]},
+            )
+        return was_new
+
+    def __revocations(self) -> set[str]:
+        try:
+            value = json.loads(self.revocations_path.read_text())
+        except FileNotFoundError:
+            return set()
+        if (
+            not isinstance(value, dict)
+            or value.get("version") != 1
+            or not isinstance(value.get("revocations"), list)
+        ):
+            raise ValueError("unsupported revocation index")
+        records = value["revocations"]
+        if any(
+            not isinstance(item, str)
+            or len(item) != 64
+            or any(ch not in "0123456789abcdef" for ch in item)
+            for item in records
+        ):
+            raise ValueError("invalid revocation fingerprint")
+        return set(records)
 
     def save(self, credential: Credential) -> None:
+        if self.is_revoked(credential.credential_id):
+            raise ValueError("credential has been revoked")
         entries = []
         for item in self.all():
             if item.credential_id == credential.credential_id or (
@@ -76,19 +130,22 @@ class CredentialStore:
                 continue
             entries.append(item)
         entries.append(credential)
+        self.__write(
+            self.path,
+            {"version": 1, "credentials": [e.to_json() for e in entries]},
+        )
+
+    def __write(self, path: Path, value: dict) -> None:
         self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(self.directory, 0o700)
-        fd, tmp = tempfile.mkstemp(prefix=".credentials-", dir=self.directory)
+        fd, tmp = tempfile.mkstemp(prefix=f".{path.stem}-", dir=self.directory)
         try:
             with os.fdopen(fd, "w") as stream:
                 os.fchmod(stream.fileno(), 0o600)
-                json.dump(
-                    {"version": 1, "credentials": [e.to_json() for e in entries]},
-                    stream,
-                )
+                json.dump(value, stream)
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(tmp, self.path)
+            os.replace(tmp, path)
         finally:
             if os.path.exists(tmp):
                 os.unlink(tmp)
