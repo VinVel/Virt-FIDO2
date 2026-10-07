@@ -182,6 +182,45 @@ class AuthenticatorTest(unittest.TestCase):
             {a.user["id"] for a in assertions if a.user}, {b"alice", b"bob"}
         )
 
+    def test_discord_rk_false_remains_discoverable(self):
+        self.ctap.make_credential(
+            bytes(32),
+            {"id": "discord.com"},
+            {"id": b"alice", "name": "alice"},
+            [{"type": "public-key", "alg": -7}],
+            options={"rk": False},
+        )
+        assertion = self.ctap.get_assertion(
+            "discord.com", bytes(32), options={"uv": True}
+        )
+        assert assertion.user is not None
+        self.assertEqual(assertion.user["id"], b"alice")
+
+    def test_other_rp_rk_false_stays_non_discoverable(self):
+        registration = self.ctap.make_credential(
+            bytes(32),
+            {"id": "example.com"},
+            {"id": b"alice", "name": "alice"},
+            [{"type": "public-key", "alg": -7}],
+            options={"rk": False},
+        )
+        self.assertEqual(self.auth.store.for_rp("example.com"), [])
+        with self.assertRaises(CtapError) as error:
+            self.ctap.get_assertion("example.com", bytes(32), options={"uv": True})
+        self.assertEqual(error.exception.code, CtapError.ERR.NO_CREDENTIALS)
+        assert registration.auth_data.credential_data is not None
+        assertion = self.ctap.get_assertion(
+            "example.com",
+            bytes(32),
+            [
+                {
+                    "type": "public-key",
+                    "id": registration.auth_data.credential_data.credential_id,
+                }
+            ],
+        )
+        self.assertIsNone(assertion.user)
+
     def test_next_assertion_stays_on_original_channel(self):
         for name in ("alice", "bob"):
             self.ctap.make_credential(

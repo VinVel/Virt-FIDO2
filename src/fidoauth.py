@@ -13,6 +13,7 @@ from fido2.ctap import CtapError
 from fido2.ctap2 import Ctap2
 from fido2.webauthn import Aaguid, AttestedCredentialData, AuthenticatorData
 
+from src.outliers import should_store_discoverable
 from src.polkit import AuthorizationDenied
 from src.storage import Credential, CredentialStore
 from src.tpm import InvalidCredential
@@ -180,7 +181,7 @@ class Authenticator:
         auth_data = AuthenticatorData.create(
             rp_hash, FLAG.UP | FLAG.UV | FLAG.AT, 0, attested
         )
-        if options.get("rk", False):
+        if should_store_discoverable(rp_id, options.get("rk", False) is True):
             self.store.save(
                 Credential(
                     credential_id,
