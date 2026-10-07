@@ -11,6 +11,22 @@ discoverable credentials. It does not implement CTAP1/U2F or optional CTAP
 extensions. Its virtual USB transport is presented as a roaming security key, 
 so sites that insist on a platform-only authenticator may not offer it.
 
+# Installation
+
+```bash
+uv tool install virt-fido2
+virt-fido2 install
+virt-fido2 enable
+```
+
+`virt-fido2 install` copies the bundled Polkit policy and udev rule into
+system directories and reloads udev. 
+
+`virt-fido2 enable` copies the bundled systemD service into the $HOME/.config/systemd/user
+and runs the equivalent to `systemctl --user enable --now virt-fido2.service" (just in python)
+
+Run `virt-fido2 -h` for the other commands.
+
 # Development
 
 ## Requirements
@@ -19,30 +35,8 @@ so sites that insist on a platform-only authenticator may not offer it.
 - systemd
 
 The user service needs read/write access to the TPM resource manager and
-virtual HID device. The included udev rules grant it to the active local user,
-without `tss` group membership:
-
-```sh
-sudo install -Dm644 install/polkit/io.github.virt-fido2.policy \
-  /usr/share/polkit-1/actions/io.github.virt-fido2.policy
-sudo install -Dm644 install/udev/60-virt-fido2.rules \
-  /etc/udev/rules.d/60-virt-fido2.rules
-sudo udevadm control --reload-rules
-sudo udevadm trigger --subsystem-match=misc --subsystem-match=tpmrm
-```
-
-Clone the repo, install Python dependencies and then the user service:
-
-```sh
-uv sync
-uv run python main.py install-user
-uv run python main.py enable
-```
-
-The generated user unit points at this checkout and its Python interpreter;
-keep both paths in place. `uv run python main.py stop`, `start`, `restart`, and
-`disable` manage the service. Inspect logs with
-`journalctl --user -u virt-fido2.service -f`.
+virtual HID device. The bundled udev rule grants it to the active local user,
+without `tss` group membership.
 
 The credential index is stored at
 `$XDG_DATA_HOME/virt-fido2/credentials.json`, or
@@ -52,11 +46,6 @@ private signing key remains protected by the TPM. Back up this file if you
 want discoverable credentials to remain findable after restoring your home
 directory. The TPM-bound credentials cannot be transferred to another TPM.
 
-This rename is a clean break: credentials created by earlier versions cannot
-be used with Virt-FIDO2 and must be registered again. When upgrading an
-installed copy, stop and disable its previous user service before enabling
-Virt-FIDO2, so only one virtual security key is present.
-
 Polkit gates operations performed by this service; it is not part of the TPM
 key's authorization policy. A process that obtains both a credential ID and
 direct access to the same TPM could bypass this service's prompt. The TPM
@@ -65,7 +54,7 @@ and credential index accordingly.
 
 ## Commands
 
-```sh
+```bash
 uv run -m unittest discover -s tests -v
 uv run ty check
 uv run ruff check
