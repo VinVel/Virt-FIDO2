@@ -30,7 +30,7 @@ system directories and reloads udev.
 `virt-fido2 enable` copies the bundled systemD service into the $HOME/.config/systemd/user
 and runs the equivalent to `systemctl --user enable --now virt-fido2.service" (just in python)
 
-Run `virt-fido2 -h` for the other commands.
+Run `virt-fido2 --help` for the other commands.
 
 # Development
 

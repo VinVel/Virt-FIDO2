@@ -10,6 +10,7 @@ dependencies = [
     "hid-tools[uhid]>=0.12",
     "pystemd>=0.15.3",
     "tpm2-pytss>=3.0.0",
+    "typer>=0.27.3",
 ]
 
 [dependency-groups]
