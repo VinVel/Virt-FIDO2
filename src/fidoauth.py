@@ -41,6 +41,14 @@ def _require(value: object, kind: type, status=ERR.INVALID_CBOR):
     return value
 
 
+def _required(mapping: Mapping, key: object, kind: type):
+    try:
+        value = mapping[key]
+    except KeyError as exc:
+        raise ProtocolError(ERR.MISSING_PARAMETER) from exc
+    return _require(value, kind)
+
+
 class Authenticator:
     def __init__(
         self, keys: KeyBackend, store: CredentialStore, verify_user: Callable[[], None]
@@ -61,9 +69,13 @@ class Authenticator:
             return b"\0" + cbor.encode(self._dispatch(command, payload, channel))
         except ProtocolError as exc:
             return bytes([exc.status])
-        except (AuthorizationDenied, TimeoutError):
-            return bytes([ERR.OPERATION_DENIED])
-        except (InvalidCredential, OSError, ValueError):
+        except (
+            AuthorizationDenied,
+            TimeoutError,
+            InvalidCredential,
+            OSError,
+            ValueError,
+        ):
             return bytes([ERR.OPERATION_DENIED])
 
     def _dispatch(self, command: int, payload: bytes, channel: int | None) -> dict:
@@ -90,6 +102,7 @@ class Authenticator:
         try:
             self.verify_user()
         except (AuthorizationDenied, TimeoutError):
+            # Bare raise re-raises the caught denial or timeout unchanged.
             raise
         except Exception as exc:
             raise AuthorizationDenied(str(exc)) from exc
@@ -113,15 +126,12 @@ class Authenticator:
         }
 
     def _make(self, request: Mapping) -> dict:
-        try:
-            client_hash = _require(request[1], bytes)
-            rp = _require(request[2], dict)
-            user = _require(request[3], dict)
-            algorithms = _require(request[4], list)
-            rp_id = _require(rp["id"], str)
-            user_id = _require(user["id"], bytes)
-        except KeyError as exc:
-            raise ProtocolError(ERR.MISSING_PARAMETER) from exc
+        client_hash = _required(request, 1, bytes)
+        rp = _required(request, 2, dict)
+        user = _required(request, 3, dict)
+        algorithms = _required(request, 4, list)
+        rp_id = _required(rp, "id", str)
+        user_id = _required(user, "id", bytes)
         if len(client_hash) != 32 or not rp_id or not user_id:
             raise ProtocolError(ERR.INVALID_PARAMETER)
         if not any(
@@ -136,8 +146,12 @@ class Authenticator:
         self._verify()
         # FIDO 2.0 clients use a synthetic makeCredential to select a device.
         # It must not leave a real TPM credential behind.
+        # Key 8 is pinUvAuthParam. An empty value is a client's probe for
+        # authenticator selection, not permission to create a credential.
         if request.get(8) == b"":
             raise ProtocolError(ERR.PIN_AUTH_INVALID)
+        # python-fido2 also probes selection with a .dummy RP/user pair.
+        # Return a disposable attestation without creating a TPM key.
         if rp_id == ".dummy" and user.get("name") == "dummy":
             public = ec.generate_private_key(ec.SECP256R1()).public_key()
             attested = AttestedCredentialData.create(
@@ -177,11 +191,8 @@ class Authenticator:
         return {1: "none", 2: bytes(auth_data), 3: {}}
 
     def _assert(self, request: Mapping, channel: int | None) -> dict:
-        try:
-            rp_id = _require(request[1], str)
-            client_hash = _require(request[2], bytes)
-        except KeyError as exc:
-            raise ProtocolError(ERR.MISSING_PARAMETER) from exc
+        rp_id = _required(request, 1, str)
+        client_hash = _required(request, 2, bytes)
         if not rp_id or len(client_hash) != 32:
             raise ProtocolError(ERR.INVALID_PARAMETER)
         if request.get(4):

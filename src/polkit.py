@@ -10,7 +10,7 @@ from src.config import ACTION_ID
 
 
 class AuthorizationDenied(Exception):
-    pass
+    """Distinguishes an unavailable or rejected Polkit check from other failures."""
 
 
 async def authorize_async(timeout: float = 60.0) -> None:

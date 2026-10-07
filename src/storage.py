@@ -65,12 +65,14 @@ class CredentialStore:
         return [item for item in self.all() if item.rp_id == rp_id]
 
     def save(self, credential: Credential) -> None:
-        entries = [
-            item
-            for item in self.all()
-            if item.credential_id != credential.credential_id
-            and (item.rp_id, item.user_id) != (credential.rp_id, credential.user_id)
-        ]
+        entries = []
+        for item in self.all():
+            if item.credential_id == credential.credential_id or (
+                item.rp_id,
+                item.user_id,
+            ) == (credential.rp_id, credential.user_id):
+                continue
+            entries.append(item)
         entries.append(credential)
         self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(self.directory, 0o700)

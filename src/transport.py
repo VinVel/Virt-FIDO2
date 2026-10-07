@@ -90,19 +90,23 @@ class FidoTransport:
         channel = struct.unpack_from(">I", packet)[0]
         marker = packet[4]
         if marker & 0x80:
-            command = marker & 0x7F
-            size = struct.unpack_from(">H", packet, 5)[0]
-            if size > MAX_MESSAGE:
-                self._error(channel, 0x03)
-                return
-            assembly = _Assembly(
-                command, size, bytearray(packet[7 : 7 + min(size, 57)])
-            )
-            if len(assembly.data) == size:
-                self._handle(channel, command, bytes(assembly.data))
-            else:
-                self.assemblies[channel] = assembly
+            self._start_message(channel, marker & 0x7F, packet)
             return
+
+        self._continue_message(channel, marker, packet)
+
+    def _start_message(self, channel: int, command: int, packet: bytes) -> None:
+        size = struct.unpack_from(">H", packet, 5)[0]
+        if size > MAX_MESSAGE:
+            self._error(channel, 0x03)
+            return
+        assembly = _Assembly(command, size, bytearray(packet[7 : 7 + min(size, 57)]))
+        if len(assembly.data) == size:
+            self._handle(channel, command, bytes(assembly.data))
+            return
+        self.assemblies[channel] = assembly
+
+    def _continue_message(self, channel: int, marker: int, packet: bytes) -> None:
         assembly = self.assemblies.get(channel)
         if assembly is None or marker != assembly.sequence:
             self.assemblies.pop(channel, None)
@@ -118,33 +122,39 @@ class FidoTransport:
 
     def _handle(self, channel: int, command: int, payload: bytes) -> None:
         if command == CTAPHID.INIT:
-            if len(payload) != 8:
-                self._error(channel, 0x03)
-                return
-            allocated = int.from_bytes(os.urandom(4), "big")
-            while allocated in self.channels or allocated in (0, BROADCAST):
-                allocated = int.from_bytes(os.urandom(4), "big")
-            self.channels.add(allocated)
-            reply = (
-                payload
-                + struct.pack(">I", allocated)
-                + bytes([2, 1, 0, 0, int(CAPABILITY.CBOR | CAPABILITY.NMSG)])
-            )
-            self._send(channel, CTAPHID.INIT, reply)
+            self._init_channel(channel, payload)
             return
         if channel not in self.channels:
             self._error(channel, 0x0B)
             return
-        if command == CTAPHID.CANCEL:
-            if self.active and self.active[0] == channel:
-                self.cancelled = True
+
+        match command:
+            case CTAPHID.CANCEL:
+                if self.active and self.active[0] == channel:
+                    self.cancelled = True
+            case CTAPHID.PING:
+                self._send(channel, CTAPHID.PING, payload)
+            case CTAPHID.CBOR:
+                self._start_command(channel, payload)
+            case _:
+                self._error(channel, 0x01)
+
+    def _init_channel(self, channel: int, payload: bytes) -> None:
+        if len(payload) != 8:
+            self._error(channel, 0x03)
             return
-        if command == CTAPHID.PING:
-            self._send(channel, CTAPHID.PING, payload)
-            return
-        if command != CTAPHID.CBOR:
-            self._error(channel, 0x01)
-            return
+        allocated = int.from_bytes(os.urandom(4), "big")
+        while allocated in self.channels or allocated in (0, BROADCAST):
+            allocated = int.from_bytes(os.urandom(4), "big")
+        self.channels.add(allocated)
+        reply = (
+            payload
+            + struct.pack(">I", allocated)
+            + bytes([2, 1, 0, 0, int(CAPABILITY.CBOR | CAPABILITY.NMSG)])
+        )
+        self._send(channel, CTAPHID.INIT, reply)
+
+    def _start_command(self, channel: int, payload: bytes) -> None:
         if self.active is not None:
             self._error(channel, 0x06)
             return
@@ -163,26 +173,38 @@ class FidoTransport:
                 device.create_kernel_device()
                 LOG.info("Virtual FIDO2 device created")
                 while True:
-                    UHIDDevice.dispatch(50)
-                    while not self.incoming.empty():
-                        self._receive(self.incoming.get_nowait())
-                    if self.active:
-                        channel, future = self.active
-                        if future.done():
-                            self.active = None
-                            try:
-                                result = future.result()
-                            except Exception:
-                                LOG.exception("Authenticator operation failed")
-                                result = bytes([0x27])
-                            if not self.cancelled:
-                                self._send(channel, CTAPHID.CBOR, result)
-                        elif time.monotonic() >= self.keepalive_at:
-                            self._send(channel, CTAPHID.KEEPALIVE, b"\x02")
-                            self.keepalive_at = time.monotonic() + 0.1
-                    for channel, assembly in list(self.assemblies.items()):
-                        if time.monotonic() - assembly.started > 3:
-                            self.assemblies.pop(channel)
-                            self._error(channel, 0x05)
+                    self._poll_once()
         finally:
+            # Also runs when dispatch or device creation raises, or on Ctrl-C.
             self.executor.shutdown(wait=False, cancel_futures=True)
+
+    def _poll_once(self) -> None:
+        UHIDDevice.dispatch(50)
+        while not self.incoming.empty():
+            self._receive(self.incoming.get_nowait())
+        self._poll_active()
+        self._expire_assemblies()
+
+    def _poll_active(self) -> None:
+        if self.active is None:
+            return
+        channel, future = self.active
+        if not future.done():
+            if time.monotonic() >= self.keepalive_at:
+                self._send(channel, CTAPHID.KEEPALIVE, b"\x02")
+                self.keepalive_at = time.monotonic() + 0.1
+            return
+        self.active = None
+        try:
+            result = future.result()
+        except Exception:
+            LOG.exception("Authenticator operation failed")
+            result = bytes([0x27])
+        if not self.cancelled:
+            self._send(channel, CTAPHID.CBOR, result)
+
+    def _expire_assemblies(self) -> None:
+        for channel, assembly in list(self.assemblies.items()):
+            if time.monotonic() - assembly.started > 3:
+                self.assemblies.pop(channel)
+                self._error(channel, 0x05)

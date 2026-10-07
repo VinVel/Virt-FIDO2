@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 import os
 import struct
+from collections.abc import Iterator
 from contextlib import contextmanager
+from typing import cast
 
 from tpm2_pytss import (
     ESAPI,
@@ -76,26 +78,41 @@ class TPMKeys:
         with ESAPI(self.tcti) as esys:
             yield esys
 
+    @contextmanager
+    def _parent(self, esys: ESAPI, seed: bytes, rp_hash: bytes) -> Iterator[ESYS_TR]:
+        parent, *_ = esys.create_primary(
+            None, _parent_template(seed, rp_hash), cast(ESYS_TR, ESYS_TR.OWNER)
+        )
+        try:
+            yield parent
+        finally:
+            esys.flush_context(parent)
+
+    @contextmanager
+    def _child(
+        self,
+        esys: ESAPI,
+        parent: ESYS_TR,
+        private: TPM2B_PRIVATE,
+        public: TPM2B_PUBLIC,
+    ) -> Iterator[ESYS_TR]:
+        child = esys.load(parent, private, public)
+        try:
+            yield child
+        finally:
+            esys.flush_context(child)
+
     def create(self, rp_hash: bytes) -> tuple[bytes, bytes, bytes]:
         # Return credential ID and 32-byte public X/Y coordinates.
         if len(rp_hash) != 32:
             raise ValueError("RP hash must be SHA-256")
         seed = os.urandom(20)
-        with self._context() as esys:
-            parent, *_ = esys.create_primary(
-                None, _parent_template(seed, rp_hash), ESYS_TR.OWNER
-            )
-            try:
-                private, public, *_ = esys.create(parent, None, _child_template())
-                child = esys.load(parent, private, public)
-                try:
-                    actual, *_ = esys.read_public(child)
-                    point = actual.publicArea.unique.ecc
-                    x, y = bytes(point.x), bytes(point.y)
-                finally:
-                    esys.flush_context(child)
-            finally:
-                esys.flush_context(parent)
+        with self._context() as esys, self._parent(esys, seed, rp_hash) as parent:
+            private, public, *_ = esys.create(parent, None, _child_template())
+            with self._child(esys, parent, private, public) as child:
+                actual, *_ = esys.read_public(child)
+                point = actual.publicArea.unique.ecc
+                x, y = bytes(point.x), bytes(point.y)
         private_bytes, public_bytes = private.marshal(), public.marshal()
         credential_id = (
             MAGIC
@@ -109,26 +126,20 @@ class TPMKeys:
         return credential_id, x.rjust(32, b"\0"), y.rjust(32, b"\0")
 
     def sign(self, credential_id: bytes, rp_hash: bytes, digest: bytes) -> bytes:
-        # Sign a SHA-256 digest; Load verifies the RP binding and this TPM. 
+        # Sign a SHA-256 digest; Load verifies the RP binding and this TPM.
         if len(rp_hash) != 32 or len(digest) != 32:
             raise ValueError("expected SHA-256 digests")
         seed, private, public = _parts(credential_id)
         try:
-            with self._context() as esys:
-                parent, *_ = esys.create_primary(
-                    None, _parent_template(seed, rp_hash), ESYS_TR.OWNER
+            with (
+                self._context() as esys,
+                self._parent(esys, seed, rp_hash) as parent,
+                self._child(esys, parent, private, public) as child,
+            ):
+                signature = esys.sign(
+                    child, digest, TPMT_SIG_SCHEME(scheme=TPM2_ALG.NULL)
                 )
-                try:
-                    child = esys.load(parent, private, public)
-                    try:
-                        signature = esys.sign(
-                            child, digest, TPMT_SIG_SCHEME(scheme=TPM2_ALG.NULL)
-                        )
-                        return bytes(signature)
-                    finally:
-                        esys.flush_context(child)
-                finally:
-                    esys.flush_context(parent)
+                return bytes(signature)
         except InvalidCredential:
             raise
         except Exception as exc:
