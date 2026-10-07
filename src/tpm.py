@@ -74,12 +74,12 @@ class TPMKeys:
         self.tcti = tcti or os.environ.get("TPM2TOOLS_TCTI") or "device:/dev/tpmrm0"
 
     @contextmanager
-    def _context(self):
+    def __context(self):
         with ESAPI(self.tcti) as esys:
             yield esys
 
     @contextmanager
-    def _parent(self, esys: ESAPI, seed: bytes, rp_hash: bytes) -> Iterator[ESYS_TR]:
+    def __parent(self, esys: ESAPI, seed: bytes, rp_hash: bytes) -> Iterator[ESYS_TR]:
         parent, *_ = esys.create_primary(
             None, _parent_template(seed, rp_hash), cast(ESYS_TR, ESYS_TR.OWNER)
         )
@@ -89,7 +89,7 @@ class TPMKeys:
             esys.flush_context(parent)
 
     @contextmanager
-    def _child(
+    def __child(
         self,
         esys: ESAPI,
         parent: ESYS_TR,
@@ -107,9 +107,9 @@ class TPMKeys:
         if len(rp_hash) != 32:
             raise ValueError("RP hash must be SHA-256")
         seed = os.urandom(20)
-        with self._context() as esys, self._parent(esys, seed, rp_hash) as parent:
+        with self.__context() as esys, self.__parent(esys, seed, rp_hash) as parent:
             private, public, *_ = esys.create(parent, None, _child_template())
-            with self._child(esys, parent, private, public) as child:
+            with self.__child(esys, parent, private, public) as child:
                 actual, *_ = esys.read_public(child)
                 point = actual.publicArea.unique.ecc
                 x, y = bytes(point.x), bytes(point.y)
@@ -132,9 +132,9 @@ class TPMKeys:
         seed, private, public = _parts(credential_id)
         try:
             with (
-                self._context() as esys,
-                self._parent(esys, seed, rp_hash) as parent,
-                self._child(esys, parent, private, public) as child,
+                self.__context() as esys,
+                self.__parent(esys, seed, rp_hash) as parent,
+                self.__child(esys, parent, private, public) as child,
             ):
                 signature = esys.sign(
                     child, digest, TPMT_SIG_SCHEME(scheme=TPM2_ALG.NULL)

@@ -2,7 +2,7 @@
 
 import struct
 import unittest
-from typing import cast
+from typing import Any, cast
 from unittest.mock import patch
 
 from fido2.hid import CTAPHID
@@ -35,19 +35,21 @@ class FramingTest(unittest.TestCase):
         self.addCleanup(self.transport.executor.shutdown, wait=True)
         self.device = Device()
         self.transport.device = cast(FidoDevice, self.device)
+        # These framing tests intentionally exercise name-mangled internals.
+        private_transport = cast(Any, self.transport)
+        self.receive = private_transport._FidoTransport__receive
+        self.poll_active = private_transport._FidoTransport__poll_active
 
     def test_init_and_multiframe_ping(self):
         nonce = b"12345678"
-        self.transport._receive(packet(BROADCAST, CTAPHID.INIT, nonce))
+        self.receive(packet(BROADCAST, CTAPHID.INIT, nonce))
         response = self.device.reports.pop()
         self.assertEqual(response[7:15], nonce)
         channel = struct.unpack_from(">I", response, 15)[0]
         self.assertIn(channel, self.transport.channels)
         payload = bytes(range(100))
-        self.transport._receive(packet(channel, CTAPHID.PING, payload))
-        self.transport._receive(
-            (struct.pack(">IB", channel, 0) + payload[57:]).ljust(64, b"\0")
-        )
+        self.receive(packet(channel, CTAPHID.PING, payload))
+        self.receive((struct.pack(">IB", channel, 0) + payload[57:]).ljust(64, b"\0"))
         self.assertEqual(len(self.device.reports), 2)
         first, second = self.device.reports
         self.assertEqual(first[4], CTAPHID.PING | 0x80)
@@ -57,10 +59,8 @@ class FramingTest(unittest.TestCase):
     def test_bad_sequence_is_rejected(self):
         channel = 17
         self.transport.channels.add(channel)
-        self.transport._receive(packet(channel, CTAPHID.PING, bytes(100)))
-        self.transport._receive(
-            (struct.pack(">IB", channel, 1) + bytes(43)).ljust(64, b"\0")
-        )
+        self.receive(packet(channel, CTAPHID.PING, bytes(100)))
+        self.receive((struct.pack(">IB", channel, 1) + bytes(43)).ljust(64, b"\0"))
         response = self.device.reports.pop()
         self.assertEqual(response[4], CTAPHID.ERROR | 0x80)
         self.assertEqual(response[7], 0x04)
@@ -68,10 +68,10 @@ class FramingTest(unittest.TestCase):
     def test_cbor_command_reaches_authenticator(self):
         channel = 17
         self.transport.channels.add(channel)
-        self.transport._receive(packet(channel, CTAPHID.CBOR, b"\x04"))
+        self.receive(packet(channel, CTAPHID.CBOR, b"\x04"))
         assert self.transport.active is not None
         self.transport.active[1].result(timeout=1)
-        self.transport._poll_active()
+        self.poll_active()
         response = self.device.reports.pop()
         self.assertEqual(response[4], CTAPHID.CBOR | 0x80)
         self.assertEqual(response[7], 0)

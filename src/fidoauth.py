@@ -66,7 +66,7 @@ class Authenticator:
             return bytes([ERR.INVALID_LENGTH])
         command, payload = request[0], request[1:]
         try:
-            return b"\0" + cbor.encode(self._dispatch(command, payload, channel))
+            return b"\0" + cbor.encode(self.__dispatch(command, payload, channel))
         except ProtocolError as exc:
             return bytes([exc.status])
         except (
@@ -78,11 +78,11 @@ class Authenticator:
         ):
             return bytes([ERR.OPERATION_DENIED])
 
-    def _dispatch(self, command: int, payload: bytes, channel: int | None) -> dict:
+    def __dispatch(self, command: int, payload: bytes, channel: int | None) -> dict:
         if command == Ctap2.CMD.GET_INFO:
-            return self._info()
+            return self.__info()
         if command == Ctap2.CMD.GET_NEXT_ASSERTION:
-            return self._next_assertion(channel)
+            return self.__next_assertion(channel)
 
         # Any other command ends a pending getNextAssertion sequence.
         self._next.clear()
@@ -95,10 +95,10 @@ class Authenticator:
             raise ProtocolError(ERR.INVALID_CBOR) from exc
         params = cast(dict, _require(params, dict))
         if command == Ctap2.CMD.MAKE_CREDENTIAL:
-            return self._make(params)
-        return self._assert(params, channel)
+            return self.__make(params)
+        return self.__assert(params, channel)
 
-    def _verify(self) -> None:
+    def __verify(self) -> None:
         try:
             self.verify_user()
         except (AuthorizationDenied, TimeoutError):
@@ -108,7 +108,7 @@ class Authenticator:
             raise AuthorizationDenied(str(exc)) from exc
 
     @staticmethod
-    def _info() -> dict:
+    def __info() -> dict:
         # Numeric keys are CTAP2 authenticatorGetInfo response fields.
         return {
             1: ["FIDO_2_0"],  # Supported protocol versions.
@@ -125,7 +125,7 @@ class Authenticator:
             10: [{"type": "public-key", "alg": -7}],  # ES256 signing algorithm.
         }
 
-    def _make(self, request: Mapping) -> dict:
+    def __make(self, request: Mapping) -> dict:
         client_hash = _required(request, 1, bytes)
         rp = _required(request, 2, dict)
         user = _required(request, 3, dict)
@@ -143,7 +143,7 @@ class Authenticator:
             raise ProtocolError(ERR.UNSUPPORTED_OPTION)
         options = _require(request.get(7, {}), dict)
         rp_hash = hashlib.sha256(rp_id.encode()).digest()
-        self._verify()
+        self.__verify()
         # FIDO 2.0 clients use a synthetic makeCredential to select a device.
         # It must not leave a real TPM credential behind.
         # Key 8 is pinUvAuthParam. An empty value is a client's probe for
@@ -190,7 +190,7 @@ class Authenticator:
             )
         return {1: "none", 2: bytes(auth_data), 3: {}}
 
-    def _assert(self, request: Mapping, channel: int | None) -> dict:
+    def __assert(self, request: Mapping, channel: int | None) -> dict:
         rp_id = _required(request, 1, str)
         client_hash = _required(request, 2, bytes)
         if not rp_id or len(client_hash) != 32:
@@ -216,7 +216,7 @@ class Authenticator:
         want_uv = options.get("uv", False) is True
         verified = False
         if want_up or want_uv:
-            self._verify()
+            self.__verify()
             verified = True
         # Normal requests authenticate before any TPM operation. A silent
         # up=false preflight intentionally has no prompt and must not claim UV.
@@ -230,12 +230,14 @@ class Authenticator:
         ]
         self._next_channel = channel
         self._next_until = time.monotonic() + 30
-        result = self._assertion(candidates[0], rp_hash, client_hash, verified, want_up)
+        result = self.__assertion(
+            candidates[0], rp_hash, client_hash, verified, want_up
+        )
         if len(candidates) > 1:
             result[5] = len(candidates)
         return result
 
-    def _next_assertion(self, channel: int | None) -> dict:
+    def __next_assertion(self, channel: int | None) -> dict:
         if channel != self._next_channel:
             raise ProtocolError(ERR.NOT_ALLOWED)
         if not self._next or time.monotonic() > self._next_until:
@@ -243,9 +245,9 @@ class Authenticator:
             self._next_channel = None
             raise ProtocolError(ERR.NOT_ALLOWED)
         credential, rp_hash, client_hash, verified, want_up = self._next.pop(0)
-        return self._assertion(credential, rp_hash, client_hash, verified, want_up)
+        return self.__assertion(credential, rp_hash, client_hash, verified, want_up)
 
-    def _assertion(
+    def __assertion(
         self,
         credential: Credential,
         rp_hash: bytes,
