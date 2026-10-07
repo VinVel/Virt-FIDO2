@@ -1,4 +1,4 @@
-# Passkey-tpm-linux
+# Virt-FIDO2
 
 A small, per-user FIDO2 authenticator for Linux. It appears to browsers and local
 applications as a virtual USB security key. Your desktop's Polkit agent verifies
@@ -23,10 +23,10 @@ virtual HID device. The included udev rules grant it to the active local user,
 without `tss` group membership:
 
 ```sh
-sudo install -Dm644 install/polkit/io.github.passkey-tpm-linux.policy \
-  /usr/share/polkit-1/actions/io.github.passkey-tpm-linux.policy
-sudo install -Dm644 install/udev/60-passkey-tpm-linux.rules \
-  /etc/udev/rules.d/60-passkey-tpm-linux.rules
+sudo install -Dm644 install/polkit/io.github.virt-fido2.policy \
+  /usr/share/polkit-1/actions/io.github.virt-fido2.policy
+sudo install -Dm644 install/udev/60-virt-fido2.rules \
+  /etc/udev/rules.d/60-virt-fido2.rules
 sudo udevadm control --reload-rules
 sudo udevadm trigger --subsystem-match=misc --subsystem-match=tpmrm
 ```
@@ -35,22 +35,27 @@ Clone the repo, install Python dependencies and then the user service:
 
 ```sh
 uv sync
-uv run main.py install-user
-uv run main.py enable
+uv run python main.py install-user
+uv run python main.py enable
 ```
 
 The generated user unit points at this checkout and its Python interpreter;
-keep both paths in place. `uv run main.py stop`, `start`, `restart`, and
+keep both paths in place. `uv run python main.py stop`, `start`, `restart`, and
 `disable` manage the service. Inspect logs with
-`journalctl --user -u passkey-tpm-linux.service -f`.
+`journalctl --user -u virt-fido2.service -f`.
 
 The credential index is stored at
-`$XDG_DATA_HOME/passkey-tpm-linux/credentials.json`, or
-`~/.local/share/passkey-tpm-linux/credentials.json` by default. The index
+`$XDG_DATA_HOME/virt-fido2/credentials.json`, or
+`~/.local/share/virt-fido2/credentials.json` by default. The index
 contains RP and user metadata plus opaque TPM-wrapped credential IDs. The
 private signing key remains protected by the TPM. Back up this file if you
 want discoverable credentials to remain findable after restoring your home
 directory. The TPM-bound credentials cannot be transferred to another TPM.
+
+This rename is a clean break: credentials created by earlier versions cannot
+be used with Virt-FIDO2 and must be registered again. When upgrading an
+installed copy, stop and disable its previous user service before enabling
+Virt-FIDO2, so only one virtual security key is present.
 
 Polkit gates operations performed by this service; it is not part of the TPM
 key's authorization policy. A process that obtains both a credential ID and
@@ -69,7 +74,7 @@ uv run ruff check
 
 
 ```
-    Passkey-tpm-linux, a TPM-backed virtual FIDO2 passkey authenticator for Linux
+    Virt-FIDO2, a TPM-backed virtual FIDO2 passkey authenticator for Linux
     Copyright (C) 2026 VinVel
 
 

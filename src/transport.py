@@ -44,8 +44,8 @@ class _Assembly:
 class FidoDevice(UHIDDevice):
     def __init__(self, incoming: queue.Queue[bytes]):
         super().__init__()
-        self.name = "Passkey TPM Linux"
-        self.phys = "passkey-tpm-linux"
+        self.name = "Virt-FIDO2"
+        self.phys = "virt-fido2"
         # UHID bus type 0x03 is USB; the remaining values identify this
         # virtual device to HID clients (vendor 0x1209, product 0xF1D0).
         self.info = (0x03, 0x1209, 0xF1D0)

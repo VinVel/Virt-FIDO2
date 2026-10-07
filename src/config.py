@@ -3,9 +3,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-ACTION_ID = "io.github.passkey-tpm-linux.authenticate"
-SERVICE_NAME = "passkey-tpm-linux.service"
-APP_NAME = "passkey-tpm-linux"
+ACTION_ID = "io.github.virt-fido2.authenticate"
+SERVICE_NAME = "virt-fido2.service"
+APP_NAME = "virt-fido2"
 
 
 def data_dir() -> Path:
@@ -31,7 +31,7 @@ def install_user_unit(executable: str) -> Path:
     root = Path(__file__).resolve().parent.parent
     unit = (
         "[Unit]\n"
-        "Description=TPM-backed FIDO2 passkey authenticator\n"
+        "Description=Virt-FIDO2 TPM-backed authenticator\n"
         "ConditionPathExists=/dev/tpmrm0\n"
         "\n"
         "[Service]\n"

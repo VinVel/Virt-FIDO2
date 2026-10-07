@@ -1,4 +1,4 @@
-"""Passkey TPM Linux command-line entry point."""
+"""Virt-FIDO2 command-line entry point."""
 
 from __future__ import annotations
 

@@ -1,5 +1,5 @@
 [project]
-name = "passkey-tpm-linux"
+name = "virt-fido2"
 version = "0.1.0"
 description = "A TPM-backed virtual FIDO2 passkey authenticator for Linux"
 readme = "README.md"

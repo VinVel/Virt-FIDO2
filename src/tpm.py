@@ -19,7 +19,7 @@ from tpm2_pytss import (
 )
 
 # Versioned prefix lets us reject credential IDs from other formats.
-MAGIC = b"PTL1"
+MAGIC = b"VFD1"
 # Bound the size of the self-contained TPM key blobs accepted as a credential ID.
 MAX_ID = 1024
 
@@ -60,9 +60,7 @@ class _Helpers:
             "ecc256",
             objectAttributes=TPMA_OBJECT.DEFAULT_TPM2_TOOLS_CREATEPRIMARY_ATTRS,
         )
-        digest = hashlib.sha512(
-            b"passkey-tpm-linux parent v1" + rp_hash + seed
-        ).digest()
+        digest = hashlib.sha512(b"Virt-FIDO2 parent v1" + rp_hash + seed).digest()
         template.publicArea.unique.ecc.x = TPM2B_ECC_PARAMETER(buffer=digest[:32])
         template.publicArea.unique.ecc.y = TPM2B_ECC_PARAMETER(buffer=digest[32:])
         return template
