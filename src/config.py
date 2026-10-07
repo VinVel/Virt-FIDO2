@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from uuid import UUID
 
 ACTION_ID = "io.github.virt-fido2.authenticate"
 SERVICE_NAME = "virt-fido2.service"
 APP_NAME = "virt-fido2"
+AUTHENTICATOR_NAME = "Virt-FIDO2"
+AUTHENTICATOR_AAGUID = UUID("7849e707-af46-4b9c-a766-68f5938cd846").bytes
 
 
 def data_dir() -> Path:

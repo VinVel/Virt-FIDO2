@@ -8,7 +8,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.config import ACTION_ID, SERVICE_NAME, data_dir, install_user_unit
+from src.config import (
+    ACTION_ID,
+    AUTHENTICATOR_AAGUID,
+    AUTHENTICATOR_NAME,
+    SERVICE_NAME,
+    data_dir,
+    install_user_unit,
+)
 
 
 class UserUnitTest(unittest.TestCase):
@@ -24,6 +31,8 @@ class UserUnitTest(unittest.TestCase):
             self.assertEqual(data_dir(), Path(directory) / "virt-fido2")
         self.assertEqual(SERVICE_NAME, "virt-fido2.service")
         self.assertEqual(ACTION_ID, "io.github.virt-fido2.authenticate")
+        self.assertEqual(AUTHENTICATOR_NAME, "Virt-FIDO2")
+        self.assertEqual(AUTHENTICATOR_AAGUID.hex(), "7849e707af464b9ca76668f5938cd846")
 
     def test_uevent_socket_is_available(self):
         with (

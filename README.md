@@ -11,6 +11,11 @@ discoverable credentials. It does not implement CTAP1/U2F or optional CTAP
 extensions. Its virtual USB transport is presented as a roaming security key, 
 so sites that insist on a platform-only authenticator may not offer it.
 
+The authenticator identifies its model with AAGUID
+`7849e707-af46-4b9c-a766-68f5938cd846` and appears locally as
+`Virt-FIDO2`. Websites can display that name only if their AAGUID metadata
+recognizes it; the USB name itself is not sent to websites.
+
 # Installation
 
 ```bash

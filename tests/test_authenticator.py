@@ -24,6 +24,7 @@ from fido2.webauthn import (
     UserVerificationRequirement,
 )
 
+from src.config import AUTHENTICATOR_AAGUID
 from src.fidoauth import Authenticator
 from src.polkit import AuthorizationDenied
 from src.storage import CredentialStore
@@ -88,6 +89,24 @@ class AuthenticatorTest(unittest.TestCase):
         )
         self.device = Device(self.auth)
         self.ctap = Ctap2(self.device)
+
+    def test_model_aaguid_is_consistent_in_info_and_registration(self):
+        self.assertEqual(bytes(self.ctap.get_info().aaguid), AUTHENTICATOR_AAGUID)
+        self.assertEqual(len(AUTHENTICATOR_AAGUID), 16)
+        for rp_id, user in (
+            ("example.com", {"id": b"alice", "name": "alice"}),
+            (".dummy", {"id": b"dummy", "name": "dummy"}),
+        ):
+            with self.subTest(rp_id=rp_id):
+                result = self.ctap.make_credential(
+                    bytes(32),
+                    {"id": rp_id},
+                    user,
+                    [{"type": "public-key", "alg": -7}],
+                )
+                credential = result.auth_data.credential_data
+                assert credential is not None
+                self.assertEqual(bytes(credential.aaguid), AUTHENTICATOR_AAGUID)
 
     def test_fido2_client_and_server_round_trip(self):
         client = Fido2Client(

@@ -11,8 +11,9 @@ from fido2 import cbor
 from fido2.cose import ES256
 from fido2.ctap import CtapError
 from fido2.ctap2 import Ctap2
-from fido2.webauthn import Aaguid, AttestedCredentialData, AuthenticatorData
+from fido2.webauthn import AttestedCredentialData, AuthenticatorData
 
+from src.config import AUTHENTICATOR_AAGUID
 from src.outliers import should_store_discoverable
 from src.polkit import AuthorizationDenied
 from src.storage import Credential, CredentialStore
@@ -115,7 +116,7 @@ class Authenticator:
         # Numeric keys are CTAP2 authenticatorGetInfo response fields.
         return {
             1: ["FIDO_2_0"],  # Supported protocol versions.
-            3: bytes(Aaguid.NONE),  # No assigned authenticator model ID.
+            3: AUTHENTICATOR_AAGUID,  # Stable Virt-FIDO2 model identifier.
             4: {  # Supported authenticator options.
                 "rk": True,  # Discoverable (resident) credentials.
                 "up": True,  # User presence on interactive operations.
@@ -158,7 +159,9 @@ class Authenticator:
         if rp_id == ".dummy" and user.get("name") == "dummy":
             public = ec.generate_private_key(ec.SECP256R1()).public_key()
             attested = AttestedCredentialData.create(
-                bytes(Aaguid.NONE), os.urandom(32), ES256.from_cryptography_key(public)
+                AUTHENTICATOR_AAGUID,
+                os.urandom(32),
+                ES256.from_cryptography_key(public),
             )
             auth_data = AuthenticatorData.create(
                 rp_hash, FLAG.UP | FLAG.UV | FLAG.AT, 0, attested
@@ -176,7 +179,7 @@ class Authenticator:
         # -1=curve (1=P-256), -2=X coordinate, -3=Y coordinate.
         cose_key = ES256({1: 2, 3: -7, -1: 1, -2: x, -3: y})
         attested = AttestedCredentialData.create(
-            bytes(Aaguid.NONE), credential_id, cose_key
+            AUTHENTICATOR_AAGUID, credential_id, cose_key
         )
         auth_data = AuthenticatorData.create(
             rp_hash, FLAG.UP | FLAG.UV | FLAG.AT, 0, attested

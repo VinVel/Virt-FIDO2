@@ -12,6 +12,8 @@ from typing import Protocol, cast
 from fido2.hid import CAPABILITY, CTAPHID
 from hidtools.uhid import UHIDDevice
 
+from src.config import AUTHENTICATOR_NAME
+
 
 class CommandHandler(Protocol):
     def handle(self, request: bytes, channel: int | None = None) -> bytes: ...
@@ -44,7 +46,7 @@ class _Assembly:
 class FidoDevice(UHIDDevice):
     def __init__(self, incoming: queue.Queue[bytes]):
         super().__init__()
-        self.name = "Virt-FIDO2"
+        self.name = AUTHENTICATOR_NAME
         self.phys = "virt-fido2"
         # UHID bus type 0x03 is USB; the remaining values identify this
         # virtual device to HID clients (vendor 0x1209, product 0xF1D0).
