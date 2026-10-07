@@ -25,10 +25,11 @@ def user_unit_path() -> Path:
     return config / "systemd/user" / SERVICE_NAME
 
 
-def install_user_unit(executable: str) -> Path:
+def install_user_unit(command: str) -> Path:
+    if not Path(command).is_absolute():
+        raise ValueError("service command must be an absolute path")
     path = user_unit_path()
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    root = Path(__file__).resolve().parent.parent
     unit = (
         "[Unit]\n"
         "Description=Virt-FIDO2 TPM-backed authenticator\n"
@@ -36,8 +37,7 @@ def install_user_unit(executable: str) -> Path:
         "\n"
         "[Service]\n"
         "Type=simple\n"
-        f"ExecStart={executable} -m main run\n"
-        f"WorkingDirectory={root}\n"
+        f"ExecStart={command} run\n"
         "Restart=on-failure\n"
         "RestartSec=2\n"
         "NoNewPrivileges=true\n"

@@ -17,3 +17,13 @@ dev = [
     "ruff>=0.16.10",
     "ty>=0.0.84",
 ]
+
+[project.scripts]
+virt-fido2 = "main:main"
+
+[tool.setuptools]
+packages = ["src", "src.assets"]
+py-modules = ["main"]
+
+[tool.setuptools.package-data]
+"src.assets" = ["*.policy", "*.rules"]
