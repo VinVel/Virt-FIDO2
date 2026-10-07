@@ -35,18 +35,20 @@ class ProtocolError(Exception):
         super().__init__(f"CTAP status 0x{self.status:02x}")
 
 
-def _require(value: object, kind: type, status=ERR.INVALID_CBOR):
-    if not isinstance(value, kind):
-        raise ProtocolError(status)
-    return value
+class _Helpers:
+    @staticmethod
+    def require(value: object, kind: type, status=ERR.INVALID_CBOR):
+        if not isinstance(value, kind):
+            raise ProtocolError(status)
+        return value
 
-
-def _required(mapping: Mapping, key: object, kind: type):
-    try:
-        value = mapping[key]
-    except KeyError as exc:
-        raise ProtocolError(ERR.MISSING_PARAMETER) from exc
-    return _require(value, kind)
+    @staticmethod
+    def required(mapping: Mapping, key: object, kind: type):
+        try:
+            value = mapping[key]
+        except KeyError as exc:
+            raise ProtocolError(ERR.MISSING_PARAMETER) from exc
+        return _Helpers.require(value, kind)
 
 
 class Authenticator:
@@ -93,7 +95,7 @@ class Authenticator:
             params = cbor.decode(payload)
         except Exception as exc:
             raise ProtocolError(ERR.INVALID_CBOR) from exc
-        params = cast(dict, _require(params, dict))
+        params = cast(dict, _Helpers.require(params, dict))
         if command == Ctap2.CMD.MAKE_CREDENTIAL:
             return self.__make(params)
         return self.__assert(params, channel)
@@ -126,12 +128,12 @@ class Authenticator:
         }
 
     def __make(self, request: Mapping) -> dict:
-        client_hash = _required(request, 1, bytes)
-        rp = _required(request, 2, dict)
-        user = _required(request, 3, dict)
-        algorithms = _required(request, 4, list)
-        rp_id = _required(rp, "id", str)
-        user_id = _required(user, "id", bytes)
+        client_hash = _Helpers.required(request, 1, bytes)
+        rp = _Helpers.required(request, 2, dict)
+        user = _Helpers.required(request, 3, dict)
+        algorithms = _Helpers.required(request, 4, list)
+        rp_id = _Helpers.required(rp, "id", str)
+        user_id = _Helpers.required(user, "id", bytes)
         if len(client_hash) != 32 or not rp_id or not user_id:
             raise ProtocolError(ERR.INVALID_PARAMETER)
         if not any(
@@ -141,7 +143,7 @@ class Authenticator:
             raise ProtocolError(ERR.UNSUPPORTED_ALGORITHM)
         if request.get(6):
             raise ProtocolError(ERR.UNSUPPORTED_OPTION)
-        options = _require(request.get(7, {}), dict)
+        options = _Helpers.require(request.get(7, {}), dict)
         rp_hash = hashlib.sha256(rp_id.encode()).digest()
         self.__verify()
         # FIDO 2.0 clients use a synthetic makeCredential to select a device.
@@ -161,7 +163,7 @@ class Authenticator:
                 rp_hash, FLAG.UP | FLAG.UV | FLAG.AT, 0, attested
             )
             return {1: "none", 2: bytes(auth_data), 3: {}}
-        for descriptor in _require(request.get(5, []), list):
+        for descriptor in _Helpers.require(request.get(5, []), list):
             if (
                 isinstance(descriptor, dict)
                 and isinstance(descriptor.get("id"), bytes)
@@ -191,18 +193,18 @@ class Authenticator:
         return {1: "none", 2: bytes(auth_data), 3: {}}
 
     def __assert(self, request: Mapping, channel: int | None) -> dict:
-        rp_id = _required(request, 1, str)
-        client_hash = _required(request, 2, bytes)
+        rp_id = _Helpers.required(request, 1, str)
+        client_hash = _Helpers.required(request, 2, bytes)
         if not rp_id or len(client_hash) != 32:
             raise ProtocolError(ERR.INVALID_PARAMETER)
         if request.get(4):
             raise ProtocolError(ERR.UNSUPPORTED_OPTION)
-        options = _require(request.get(5, {}), dict)
+        options = _Helpers.require(request.get(5, {}), dict)
         rp_hash = hashlib.sha256(rp_id.encode()).digest()
         allow_list = request.get(3)
         candidates: list[Credential] = []
         if allow_list:
-            for descriptor in _require(allow_list, list):
+            for descriptor in _Helpers.require(allow_list, list):
                 if isinstance(descriptor, dict) and isinstance(
                     descriptor.get("id"), bytes
                 ):

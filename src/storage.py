@@ -10,12 +10,14 @@ from pathlib import Path
 from src.config import data_dir
 
 
-def _b64(data: bytes) -> str:
-    return base64.urlsafe_b64encode(data).decode("ascii")
+class _Helpers:
+    @staticmethod
+    def b64(data: bytes) -> str:
+        return base64.urlsafe_b64encode(data).decode("ascii")
 
-
-def _unb64(data: str) -> bytes:
-    return base64.urlsafe_b64decode(data.encode("ascii"))
+    @staticmethod
+    def unb64(data: str) -> bytes:
+        return base64.urlsafe_b64decode(data.encode("ascii"))
 
 
 @dataclass(frozen=True)
@@ -28,9 +30,9 @@ class Credential:
 
     def to_json(self) -> dict:
         return {
-            "credential_id": _b64(self.credential_id),
+            "credential_id": _Helpers.b64(self.credential_id),
             "rp_id": self.rp_id,
-            "user_id": _b64(self.user_id),
+            "user_id": _Helpers.b64(self.user_id),
             "user_name": self.user_name,
             "display_name": self.display_name,
         }
@@ -38,9 +40,9 @@ class Credential:
     @classmethod
     def from_json(cls, value: dict) -> Credential:
         return cls(
-            _unb64(value["credential_id"]),
+            _Helpers.unb64(value["credential_id"]),
             value["rp_id"],
-            _unb64(value["user_id"]),
+            _Helpers.unb64(value["user_id"]),
             value.get("user_name", ""),
             value.get("display_name", ""),
         )
