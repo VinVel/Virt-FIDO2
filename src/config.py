@@ -33,24 +33,24 @@ def install_user_unit(command: str) -> Path:
         raise ValueError("service command must be an absolute path")
     path = user_unit_path()
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    unit = (
-        "[Unit]\n"
-        "Description=Virt-FIDO2 TPM-backed authenticator\n"
-        "ConditionPathExists=/dev/tpmrm0\n"
-        "\n"
-        "[Service]\n"
-        "Type=simple\n"
-        f"ExecStart={command} run\n"
-        "Restart=on-failure\n"
-        "RestartSec=2\n"
-        "NoNewPrivileges=true\n"
-        "PrivateUsers=false\n"
-        "PrivatePIDs=false\n"
-        "RestrictAddressFamilies=AF_UNIX AF_NETLINK\n"
-        "\n"
-        "[Install]\n"
-        "WantedBy=default.target\n"
-    )
+    unit = f"""
+        [Unit]
+        Description=Virt-FIDO2 TPM-backed authenticator
+        ConditionPathExists=/dev/tpmrm0
+        
+        [Service]
+        Type=simple
+        ExecStart={command} run
+        Restart=on-failure
+        RestartSec=2
+        NoNewPrivileges=true
+        PrivateUsers=false
+        PrivatePIDs=false
+        RestrictAddressFamilies=AF_UNIX AF_NETLINK
+        
+        [Install]
+        WantedBy=default.target
+    """
     path.write_text(unit)
     path.chmod(0o600)
     return path
