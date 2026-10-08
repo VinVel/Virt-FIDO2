@@ -8,10 +8,11 @@ import unittest
 from pathlib import Path
 
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from cryptography.hazmat.primitives.asymmetric.utils import Prehashed
 from fido2 import cbor
 from fido2.client import DefaultClientDataCollector, Fido2Client
+from fido2.cose import ES256, RS256
 from fido2.ctap import CtapDevice, CtapError
 from fido2.ctap2 import Ctap2
 from fido2.hid import CAPABILITY, CTAPHID
@@ -35,14 +36,20 @@ class FakeKeys:
         self.keys = {}
         self.uses = 0
 
-    def create(self, rp_hash):
-        key = ec.generate_private_key(ec.SECP256R1())
+    def create(self, rp_hash, algorithm):
+        key = {
+            -7: lambda: ec.generate_private_key(ec.SECP256R1()),
+            -257: lambda: rsa.generate_private_key(
+                public_exponent=65537, key_size=2048
+            ),
+        }[algorithm]()
         cid = hashlib.sha256(
-            rp_hash + key.private_numbers().private_value.to_bytes(32)
+            rp_hash + len(self.keys).to_bytes(4) + bytes([algorithm % 256])
         ).digest()
         self.keys[cid] = (rp_hash, key)
-        public = key.public_key().public_numbers()
-        return cid, public.x.to_bytes(32), public.y.to_bytes(32)
+        return cid, {-7: ES256, -257: RS256}[algorithm].from_cryptography_key(
+            key.public_key()
+        )
 
     def matches(self, cid, rp_hash):
         self.uses += 1
@@ -51,7 +58,12 @@ class FakeKeys:
     def sign(self, cid, rp_hash, digest):
         if not self.matches(cid, rp_hash):
             raise ValueError("wrong RP")
-        return self.keys[cid][1].sign(digest, ec.ECDSA(Prehashed(hashes.SHA256())))
+        key = self.keys[cid][1]
+        if isinstance(key, ec.EllipticCurvePrivateKey):
+            return key.sign(digest, ec.ECDSA(Prehashed(hashes.SHA256())))
+        if isinstance(key, rsa.RSAPrivateKey):
+            return key.sign(digest, padding.PKCS1v15(), Prehashed(hashes.SHA256()))
+        raise AssertionError("unsupported fake key type")
 
 
 class Device(CtapDevice):
@@ -89,6 +101,71 @@ class AuthenticatorTest(unittest.TestCase):
         )
         self.device = Device(self.auth)
         self.ctap = Ctap2(self.device)
+
+    def test_supported_algorithms_register_and_verify_assertions(self):
+        self.assertEqual(
+            {entry["alg"] for entry in self.ctap.get_info().algorithms},
+            {-7, -257},
+        )
+        for algorithm in (-7, -257):
+            with self.subTest(algorithm=algorithm):
+                registration = self.ctap.make_credential(
+                    bytes(32),
+                    {"id": "example.com"},
+                    {"id": b"alice"},
+                    [{"type": "public-key", "alg": algorithm}],
+                )
+                credential = registration.auth_data.credential_data
+                assert credential is not None
+                self.assertEqual(credential.public_key[3], algorithm)
+                assertion = self.ctap.get_assertion(
+                    "example.com",
+                    bytes(32),
+                    [{"type": "public-key", "id": credential.credential_id}],
+                )
+                credential.public_key.verify(
+                    bytes(assertion.auth_data) + bytes(32), assertion.signature
+                )
+
+    def test_unsupported_algorithm_creates_no_key(self):
+        with self.assertRaises(CtapError) as error:
+            self.ctap.make_credential(
+                bytes(32),
+                {"id": "example.com"},
+                {"id": b"alice"},
+                [{"type": "public-key", "alg": -8}],
+            )
+        self.assertEqual(error.exception.code, CtapError.ERR.UNSUPPORTED_ALGORITHM)
+        self.assertEqual(self.keys.keys, {})
+
+    def test_uses_first_supported_algorithm_in_client_order(self):
+        registration = self.ctap.make_credential(
+            bytes(32),
+            {"id": "example.com"},
+            {"id": b"alice"},
+            [
+                {"type": "public-key", "alg": -37},
+                {"type": "public-key", "alg": -257},
+                {"type": "public-key", "alg": -7},
+            ],
+        )
+        credential = registration.auth_data.credential_data
+        assert credential is not None
+        self.assertEqual(credential.public_key[3], -257)
+
+    def test_dummy_registration_uses_selected_algorithm_without_tpm_key(self):
+        for algorithm in (-7, -257):
+            with self.subTest(algorithm=algorithm):
+                registration = self.ctap.make_credential(
+                    bytes(32),
+                    {"id": ".dummy"},
+                    {"id": b"dummy", "name": "dummy"},
+                    [{"type": "public-key", "alg": algorithm}],
+                )
+                credential = registration.auth_data.credential_data
+                assert credential is not None
+                self.assertEqual(credential.public_key[3], algorithm)
+        self.assertEqual(self.keys.keys, {})
 
     def test_model_aaguid_is_consistent_in_info_and_registration(self):
         self.assertEqual(bytes(self.ctap.get_info().aaguid), AUTHENTICATOR_AAGUID)

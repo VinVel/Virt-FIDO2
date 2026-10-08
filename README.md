@@ -2,14 +2,14 @@
 
 A small, per-user FIDO2 authenticator for Linux. It appears to browsers and local
 applications as a virtual USB security key. Your desktop's Polkit agent verifies
-each real registration or login, and the TPM creates and signs with the passkey key.
-Browsers may also make silent `up=false` credential checks; those can use the
-TPM without a prompt and do not claim user presence or verification.
+each registration or login, and the TPM creates and signs with ES256 and
+RS256 passkey keys. 
 
-This is an early implementation. It supports ES256 CTAP2 passkeys, including
-discoverable credentials. It does not implement CTAP1/U2F or optional CTAP
-extensions. Its virtual USB transport is presented as a roaming security key, 
-so sites that insist on a platform-only authenticator may not offer it.
+This is an early implementation, meaning it only supports ES256 and RS256 CTAP2,
+passkeys including discoverable credentials and not CTAP1/U2F or optional
+CTAP extensions. Its virtual USB transport is presented
+as a roaming security key, so sites that insist on a platform-only
+authenticator may not offer it.
 
 The authenticator identifies its model with AAGUID
 `7849e707-af46-4b9c-a766-68f5938cd846` and appears locally as
@@ -47,15 +47,15 @@ The credential index is stored at
 `$XDG_DATA_HOME/virt-fido2/credentials.json`, or
 `~/.local/share/virt-fido2/credentials.json` by default. The index
 contains RP and user metadata plus opaque TPM-wrapped credential IDs. The
-private signing key remains protected by the TPM. Back up this file if you
-want discoverable credentials to remain findable after restoring your home
-directory. The TPM-bound credentials cannot be transferred to another TPM.
+private signing keys remain protected by the TPM. Back up this file if you
+want discoverable credentials to remain findable after
+restoring your home directory. The TPM-bound credentials cannot be transferred
+to another TPM.
 
 Polkit gates operations performed by this service; it is not part of the TPM
 key's authorization policy. A process that obtains both a credential ID and
 direct access to the same TPM could bypass this service's prompt. The TPM
-still prevents export of the private signing key. Protect your user session
-and credential index accordingly.
+still prevents export of the private signing keys. 
 
 ## Commands
 

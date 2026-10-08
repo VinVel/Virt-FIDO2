@@ -3,10 +3,11 @@ from __future__ import annotations
 import hashlib
 import os
 import struct
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from typing import cast
 
+from fido2.cose import ES256, RS256, CoseKey
 from tpm2_pytss import (
     ESAPI,
     ESYS_TR,
@@ -66,9 +67,15 @@ class _Helpers:
         return template
 
     @staticmethod
-    def child_template() -> TPM2B_PUBLIC:
+    def child_template(algorithm: int = -7) -> TPM2B_PUBLIC:
+        if algorithm == -257:
+            kind = "rsa2048:rsassa-sha256"
+        elif algorithm == -7:
+            kind = "ecc256:ecdsa-sha256"
+        else:
+            raise ValueError("unsupported signing algorithm")
         return TPM2B_PUBLIC.parse(
-            "ecc256:ecdsa-sha256",
+            kind,
             objectAttributes=TPMA_OBJECT.DEFAULT_TPM2_TOOLS_CREATE_ATTRS
             & ~TPMA_OBJECT.DECRYPT,
         )
@@ -84,7 +91,7 @@ class TPMKeys:
             yield esys
 
     @contextmanager
-    def __parent(self, esys: ESAPI, seed: bytes, rp_hash: bytes) -> Iterator[ESYS_TR]:
+    def __parent(self, esys: ESAPI, seed: bytes, rp_hash: bytes) -> Generator[ESYS_TR]:
         parent, *_ = esys.create_primary(
             None, _Helpers.parent_template(seed, rp_hash), cast(ESYS_TR, ESYS_TR.OWNER)
         )
@@ -100,24 +107,48 @@ class TPMKeys:
         parent: ESYS_TR,
         private: TPM2B_PRIVATE,
         public: TPM2B_PUBLIC,
-    ) -> Iterator[ESYS_TR]:
+    ) -> Generator[ESYS_TR]:
         child = esys.load(parent, private, public)
         try:
             yield child
         finally:
             esys.flush_context(child)
 
-    def create(self, rp_hash: bytes) -> tuple[bytes, bytes, bytes]:
-        # Return credential ID and 32-byte public X/Y coordinates.
+    def create(self, rp_hash: bytes, algorithm: int = -7) -> tuple[bytes, CoseKey]:
         if len(rp_hash) != 32:
             raise ValueError("RP hash must be SHA-256")
+        template = _Helpers.child_template(algorithm)
         seed = os.urandom(20)
         with self.__context() as esys, self.__parent(esys, seed, rp_hash) as parent:
-            private, public, *_ = esys.create(parent, None, _Helpers.child_template())
+            private, public, *_ = esys.create(parent, None, template)
             with self.__child(esys, parent, private, public) as child:
                 actual, *_ = esys.read_public(child)
-                point = actual.publicArea.unique.ecc
-                x, y = bytes(point.x), bytes(point.y)
+                if algorithm == -7:
+                    point = actual.publicArea.unique.ecc
+                    cose_key = ES256(
+                        {
+                            # CODEX: Properly document with comments what these magic numbers mean, each one
+                            1: 2,
+                            3: -7,
+                            -1: 1,
+                            -2: bytes(point.x).rjust(32, b"\0"),
+                            -3: bytes(point.y).rjust(32, b"\0"),
+                        }
+                    )
+                elif algorithm == -257:
+                    params = actual.publicArea.parameters.rsaDetail
+                    exponent = int(params.exponent) or 65537
+                    cose_key = RS256(
+                        {
+                            # CODEX: Properly document with comments what these magic numbers mean, each one
+                            1: 3,
+                            3: -257,
+                            -1: bytes(actual.publicArea.unique.rsa),
+                            -2: exponent.to_bytes(
+                                (exponent.bit_length() + 7) // 8, "big"
+                            ),
+                        }
+                    )
         private_bytes, public_bytes = private.marshal(), public.marshal()
         credential_id = (
             MAGIC
@@ -128,7 +159,7 @@ class TPMKeys:
         )
         if len(credential_id) > MAX_ID:
             raise RuntimeError("TPM key blob exceeds credential ID size")
-        return credential_id, x.rjust(32, b"\0"), y.rjust(32, b"\0")
+        return credential_id, cose_key
 
     def sign(self, credential_id: bytes, rp_hash: bytes, digest: bytes) -> bytes:
         # Sign a SHA-256 digest; Load verifies the RP binding and this TPM.
@@ -141,8 +172,13 @@ class TPMKeys:
                 self.__parent(esys, seed, rp_hash) as parent,
                 self.__child(esys, parent, private, public) as child,
             ):
+                algorithm = public.publicArea.type
+                if algorithm not in (TPM2_ALG.ECC, TPM2_ALG.RSA):
+                    raise InvalidCredential("unsupported TPM key type")
                 signature = esys.sign(
-                    child, digest, TPMT_SIG_SCHEME(scheme=TPM2_ALG.NULL)
+                    child,
+                    digest,
+                    TPMT_SIG_SCHEME(scheme=TPM2_ALG.NULL),
                 )
                 return bytes(signature)
         except InvalidCredential:

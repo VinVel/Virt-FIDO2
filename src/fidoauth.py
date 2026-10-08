@@ -6,9 +6,9 @@ import time
 from collections.abc import Callable, Mapping
 from typing import Protocol, cast
 
-from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from fido2 import cbor
-from fido2.cose import ES256
+from fido2.cose import ES256, RS256, CoseKey
 from fido2.ctap import CtapError
 from fido2.ctap2 import Ctap2
 from fido2.webauthn import AttestedCredentialData, AuthenticatorData
@@ -24,7 +24,7 @@ FLAG = AuthenticatorData.FLAG
 
 
 class KeyBackend(Protocol):
-    def create(self, rp_hash: bytes, /) -> tuple[bytes, bytes, bytes]: ...
+    def create(self, rp_hash: bytes, algorithm: int, /) -> tuple[bytes, CoseKey]: ...
     def matches(self, credential_id: bytes, rp_hash: bytes, /) -> bool: ...
     def sign(self, credential_id: bytes, rp_hash: bytes, digest: bytes, /) -> bytes: ...
 
@@ -126,7 +126,7 @@ class Authenticator:
             5: 1200,  # Maximum CTAP message size in bytes.
             6: [2],  # Advertised PIN/UV protocol version.
             9: ["usb"],  # Transport presented to clients.
-            10: [{"type": "public-key", "alg": -7}],  # ES256 signing algorithm.
+            10: [{"type": "public-key", "alg": algorithm} for algorithm in (-7, -257)],
         }
 
     def __make(self, request: Mapping) -> dict:
@@ -138,10 +138,18 @@ class Authenticator:
         user_id = _Helpers.required(user, "id", bytes)
         if len(client_hash) != 32 or not rp_id or not user_id:
             raise ProtocolError(ERR.INVALID_PARAMETER)
-        if not any(
-            isinstance(p, dict) and p.get("type") == "public-key" and p.get("alg") == -7
-            for p in algorithms
-        ):
+        # CODEX: Use an iterative approach instead of a declarative approach
+        algorithm = next(
+            (
+                p["alg"]
+                for p in algorithms
+                if isinstance(p, dict)
+                and p.get("type") == "public-key"
+                and p.get("alg") in (-7, -257)
+            ),
+            None,
+        )
+        if algorithm is None:
             raise ProtocolError(ERR.UNSUPPORTED_ALGORITHM)
         if request.get(6):
             raise ProtocolError(ERR.UNSUPPORTED_OPTION)
@@ -157,11 +165,14 @@ class Authenticator:
         # python-fido2 also probes selection with a .dummy RP/user pair.
         # Return a disposable attestation without creating a TPM key.
         if rp_id == ".dummy" and user.get("name") == "dummy":
-            public = ec.generate_private_key(ec.SECP256R1()).public_key()
+            public = {
+                -7: lambda: ec.generate_private_key(ec.SECP256R1()).public_key(),
+                -257: lambda: rsa.generate_private_key(65537, 2048).public_key(),
+            }[algorithm]()
             attested = AttestedCredentialData.create(
                 AUTHENTICATOR_AAGUID,
                 os.urandom(32),
-                ES256.from_cryptography_key(public),
+                {-7: ES256, -257: RS256}[algorithm].from_cryptography_key(public),
             )
             auth_data = AuthenticatorData.create(
                 rp_hash, FLAG.UP | FLAG.UV | FLAG.AT, 0, attested
@@ -175,10 +186,7 @@ class Authenticator:
                 and self.keys.matches(descriptor["id"], rp_hash)
             ):
                 raise ProtocolError(ERR.CREDENTIAL_EXCLUDED)
-        credential_id, x, y = self.keys.create(rp_hash)
-        # COSE_Key labels: 1=key type (2=EC2), 3=algorithm (-7=ES256),
-        # -1=curve (1=P-256), -2=X coordinate, -3=Y coordinate.
-        cose_key = ES256({1: 2, 3: -7, -1: 1, -2: x, -3: y})
+        credential_id, cose_key = self.keys.create(rp_hash, algorithm)
         attested = AttestedCredentialData.create(
             AUTHENTICATOR_AAGUID, credential_id, cose_key
         )
