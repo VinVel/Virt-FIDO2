@@ -15,12 +15,14 @@ jobs:
     steps:
       - name: Check out tagged source
         uses: actions/checkout@v7
+        with:
+          submodules: true
 
       - name: Set up uv
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
 
       - name: Build source distribution and wheel
-        run: uv build
+        run: uv build --no-sources
 
       - name: Publish to PyPI
         run: uv publish

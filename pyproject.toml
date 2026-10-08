@@ -4,8 +4,8 @@ version = "0.1.3"
 description = "A TPM-backed virtual FIDO2 passkey authenticator for Linux"
 readme = "README.md"
 requires-python = ">=3.12"
-license = "GPL-3.0-or-later"
-license-files = ["LICENSE"]
+license = "GPL-3.0-or-later AND GPL-2.0-or-later"
+license-files = ["LICENSE", "libs/hid-tools/COPYING"]
 authors = [{ name = "VinVel" }]
 keywords = ["fido2", "webauthn", "passkeys", "tpm2", "linux", "authenticator"]
 classifiers = [
@@ -21,7 +21,8 @@ classifiers = [
 dependencies = [
     "dbus-fast>=5.0.25",
     "fido2>=2.2.1",
-    "hid-tools[uhid]>=0.12",
+    "parse>=1.22.2",
+    "pyroute2>=0.9.6",
     "pystemd>=0.15.3",
     "rich>=15.0.0",
     "tpm2-pytss>=3.0.0",
@@ -43,8 +44,18 @@ dev = [
 virt-fido2 = "main:main"
 
 [tool.setuptools]
-packages = ["src", "src.assets"]
+packages = ["src", "src.assets", "hidtools"]
 py-modules = ["main"]
+
+[tool.setuptools.package-dir]
+hidtools = "libs/hid-tools/hidtools"
 
 [tool.setuptools.package-data]
 "src.assets" = ["*.policy", "*.rules"]
+hidtools = ["py.typed", "data/*.hut"]
+
+[tool.ty.src]
+exclude = ["libs/hid-tools"]
+
+[tool.ruff]
+extend-exclude = ["libs/hid-tools"]

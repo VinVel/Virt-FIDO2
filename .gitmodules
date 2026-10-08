@@ -1,0 +1,3 @@
+[submodule "libs/hid-tools"]
+	path = libs/hid-tools
+	url = https://gitlab.freedesktop.org/libevdev/hid-tools
