@@ -127,23 +127,25 @@ class TPMKeys:
                     point = actual.publicArea.unique.ecc
                     cose_key = ES256(
                         {
-                            # CODEX: Properly document with comments what these magic numbers mean, each one
-                            1: 2,
-                            3: -7,
-                            -1: 1,
+                            1: 2,  # Key type (label 1): EC2 (2).
+                            3: -7,  # Algorithm (label 3): ES256 (-7).
+                            -1: 1,  # EC2 curve (label -1): P-256 (1).
+                            # EC2 label -2: P-256 X coordinate, padded to 32 bytes.
                             -2: bytes(point.x).rjust(32, b"\0"),
+                            # EC2 label -3: P-256 Y coordinate, padded to 32 bytes.
                             -3: bytes(point.y).rjust(32, b"\0"),
                         }
                     )
                 elif algorithm == -257:
                     params = actual.publicArea.parameters.rsaDetail
-                    exponent = int(params.exponent) or 65537
+                    exponent = int(params.exponent) or 65537  # TPM 0 means 65537.
                     cose_key = RS256(
                         {
-                            # CODEX: Properly document with comments what these magic numbers mean, each one
-                            1: 3,
-                            3: -257,
+                            1: 3,  # Key type (label 1): RSA (3).
+                            3: -257,  # Algorithm (label 3): RS256 (-257).
+                            # RSA label -1: public modulus n.
                             -1: bytes(actual.publicArea.unique.rsa),
+                            # RSA label -2: public exponent e, rounded to bytes.
                             -2: exponent.to_bytes(
                                 (exponent.bit_length() + 7) // 8, "big"
                             ),

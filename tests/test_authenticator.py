@@ -153,6 +153,22 @@ class AuthenticatorTest(unittest.TestCase):
         assert credential is not None
         self.assertEqual(credential.public_key[3], -257)
 
+    def test_algorithm_selection_skips_malformed_entries(self):
+        registration = self.ctap.make_credential(
+            bytes(32),
+            {"id": "example.com"},
+            {"id": b"alice"},
+            [
+                {"alg": -7},
+                {"type": "not-public-key", "alg": -7},
+                {"type": "public-key", "alg": -8},
+                {"type": "public-key", "alg": -257},
+            ],
+        )
+        credential = registration.auth_data.credential_data
+        assert credential is not None
+        self.assertEqual(credential.public_key[3], -257)
+
     def test_dummy_registration_uses_selected_algorithm_without_tpm_key(self):
         for algorithm in (-7, -257):
             with self.subTest(algorithm=algorithm):

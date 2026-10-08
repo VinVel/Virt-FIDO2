@@ -138,17 +138,15 @@ class Authenticator:
         user_id = _Helpers.required(user, "id", bytes)
         if len(client_hash) != 32 or not rp_id or not user_id:
             raise ProtocolError(ERR.INVALID_PARAMETER)
-        # CODEX: Use an iterative approach instead of a declarative approach
-        algorithm = next(
-            (
-                p["alg"]
-                for p in algorithms
-                if isinstance(p, dict)
-                and p.get("type") == "public-key"
-                and p.get("alg") in (-7, -257)
-            ),
-            None,
-        )
+        algorithm = None
+        for parameter in algorithms:
+            if (
+                isinstance(parameter, dict)
+                and parameter.get("type") == "public-key"
+                and parameter.get("alg") in (-7, -257)
+            ):
+                algorithm = parameter["alg"]
+                break
         if algorithm is None:
             raise ProtocolError(ERR.UNSUPPORTED_ALGORITHM)
         if request.get(6):
