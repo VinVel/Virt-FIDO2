@@ -548,7 +548,7 @@ wheels = [
 [[package]]
 name = "virt-fido2"
 version = "0.1.4"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "dbus-fast" },
     { name = "fido2" },

@@ -43,6 +43,10 @@ dev = [
 [project.scripts]
 virt-fido2 = "main:main"
 
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
 [tool.setuptools]
 packages = ["src", "src.assets", "hidtools"]
 py-modules = ["main"]
@@ -56,6 +60,9 @@ hidtools = ["py.typed", "data/*.hut"]
 
 [tool.ty.src]
 exclude = ["libs/hid-tools"]
+
+[tool.ty.environment]
+extra-paths = ["libs/hid-tools"]
 
 [tool.ruff]
 extend-exclude = ["libs/hid-tools"]
