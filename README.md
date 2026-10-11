@@ -1,12 +1,17 @@
 # Virt-FIDO2
 
-A small, per-user FIDO2 authenticator for Linux. It appears to browsers and local
-applications as a virtual USB security key. Your desktop's Polkit agent verifies
-each registration or login, and the TPM creates and signs with ES256 and
-RS256 passkey keys. 
+## Demo
 
-This is an early implementation, meaning it only supports ES256 and RS256 CTAP2,
-passkeys including discoverable credentials and not CTAP1/U2F or optional
+[demo.webm](https://github.com/user-attachments/assets/6eee24b4-d9e8-462f-8c52-409e129cdfa0)
+
+## Description
+
+A small, per-user FIDO2 authenticator for Linux. It appears to browsers and local
+applications as a virtual USB security key. Your desktop's [Polkit authentication agent](https://wiki.archlinux.org/title/Polkit#Authentication_agents) verifies each registration or login, and the 
+TPM creates and signs with ES256 and RS256 passkey keys. 
+
+This is an early implementation, that only supports modern CTAP2 (ES256 and RS256)
+passkeys including discoverable credentials. No CTAP1/U2F or optional
 CTAP extensions. Its virtual USB transport is presented
 as a roaming security key, so sites that insist on a platform-only
 authenticator may not offer it.
@@ -15,6 +20,11 @@ The authenticator identifies its model with AAGUID
 `7849e707-af46-4b9c-a766-68f5938cd846` and appears locally as
 `Virt-FIDO2`. Websites can display that name only if their AAGUID metadata
 recognizes it; the USB name itself is not sent to websites.
+
+For Virt-FIDO2 to properly work you will need uv (pip should work too), systemD
+and a [Polkit authentication agent](https://wiki.archlinux.org/title/Polkit#Authentication_agents).
+If you are on Cinnamon, Deepin, Hyprland, GNOME, GNOME Flashback, KDE, LXDE, LXQt, MATE, or Xfce, 
+you already have a Polkit authentication agent installed.
 
 # Installation
 
@@ -28,7 +38,7 @@ virt-fido2 enable
 system directories and reloads udev. 
 
 `virt-fido2 enable` copies the bundled systemD service into the $HOME/.config/systemd/user
-and runs the equivalent to `systemctl --user enable --now virt-fido2.service" (just in python)
+and runs the equivalent to `systemctl --user enable --now virt-fido2.service` (just in python)
 
 Run `virt-fido2 --help` for the other commands.
 
